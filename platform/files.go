@@ -76,6 +76,7 @@ type RunImageMetadata struct {
 type BuildMetadata struct {
 	BOM                         []buildpack.BOMEntry     `toml:"bom,omitempty" json:"bom"`
 	Buildpacks                  []buildpack.GroupElement `toml:"buildpacks" json:"buildpacks"`
+	Extensions                  []buildpack.GroupElement `toml:"extensions,omitempty" json:"extensions,omitempty"`
 	Labels                      []buildpack.Label        `toml:"labels" json:"-"`
 	Launcher                    LauncherMetadata         `toml:"-" json:"launcher"`
 	Processes                   []launch.Process         `toml:"processes" json:"processes"`

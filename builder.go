@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/pkg/errors"
 
@@ -20,10 +21,97 @@ import (
 	"github.com/buildpacks/lifecycle/platform"
 )
 
-type Platform interface {
-	API() *api.Version
+type Builder struct {
+	AppDir      string
+	DirStore    DirStore
+	Group       buildpack.Group // TODO: rename to Buildpacks?
+	LayersDir   string
+	Logger      log.Logger
+	Out, Err    io.Writer // TODO: is this needed?
+	Plan        platform.BuildPlan
+	PlatformAPI *api.Version // TODO: remove eventually, replace with services
+	PlatformDir string
 }
 
+type BuilderFactory struct {
+	platformAPI   *api.Version
+	apiVerifier   BuildpackAPIVerifier
+	configHandler ConfigHandler
+	dirStore      DirStore
+}
+
+func NewBuilderFactory(
+	platformAPI *api.Version,
+	apiVerifier BuildpackAPIVerifier,
+	configHandler ConfigHandler,
+	dirStore DirStore,
+) *BuilderFactory {
+	return &BuilderFactory{
+		platformAPI:   platformAPI,
+		apiVerifier:   apiVerifier,
+		configHandler: configHandler,
+		dirStore:      dirStore,
+	}
+}
+
+func (f *BuilderFactory) NewBuilder(
+	appDir string,
+	group buildpack.Group,
+	groupPath string,
+	layersDir string,
+	plan platform.BuildPlan,
+	planPath string,
+	platformDir string,
+	logger log.Logger,
+) (*Builder, error) {
+	builder := &Builder{
+		AppDir:      appDir,
+		DirStore:    f.dirStore,
+		LayersDir:   layersDir,
+		Logger:      logger,
+		PlatformDir: platformDir,
+		PlatformAPI: f.platformAPI, // TODO: remove
+	}
+	if err := f.setGroup(builder, group, groupPath, logger); err != nil {
+		return nil, err
+	}
+	if err := f.setPlan(builder, plan, planPath); err != nil {
+		return nil, err
+	}
+	return builder, nil
+}
+
+func (f *BuilderFactory) setGroup(builder *Builder, group buildpack.Group, path string, logger log.Logger) error {
+	if len(group.Group) > 0 {
+		builder.Group = group
+	} else {
+		buildModules, err := f.configHandler.ReadGroup(path)
+		if err != nil {
+			return err
+		}
+		builder.Group = buildpack.Group{Group: buildModules}
+	}
+	for _, el := range group.Group {
+		if err := f.apiVerifier.VerifyBuildpackAPI(el.Kind(), el.String(), el.API, logger); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (f *BuilderFactory) setPlan(builder *Builder, plan platform.BuildPlan, path string) error {
+	if len(plan.Entries) > 0 { // TODO: distinguish between empty and nil
+		builder.Plan = plan
+		return nil
+	}
+	var err error
+	builder.Plan, err = f.configHandler.ReadPlan(path)
+	return err
+}
+
+// TODO: see where this goes
+// TODO: rename build_env.go
+//go:generate mockgen -package testmock -destination testmock/env.go github.com/buildpacks/lifecycle BuildEnv
 type BuildEnv interface {
 	AddRootDir(baseDir string) error
 	AddEnvDir(envDir string, defaultAction env.ActionType) error
@@ -31,90 +119,77 @@ type BuildEnv interface {
 	List() []string
 }
 
-type DirStore interface {
-	Lookup(kind, id, version string) (buildpack.BuildModule, error)
-}
+func (b *Builder) Build(kind string) (*platform.BuildMetadata, error) {
+	if kind == "" {
+		kind = buildpack.KindBuildpack
+	}
 
-type Builder struct {
-	AppDir      string
-	LayersDir   string
-	PlatformDir string
-	Platform    Platform
-	Group       buildpack.Group
-	Plan        platform.BuildPlan
-	Out, Err    io.Writer
-	Logger      log.Logger
-	DirStore    DirStore
-}
-
-func (b *Builder) Build() (*platform.BuildMetadata, error) {
-	b.Logger.Debug("Starting build")
-
-	// ensure layers SBOM directory is removed
+	// clear <layers>/sbom directory
 	if err := os.RemoveAll(filepath.Join(b.LayersDir, "sbom")); err != nil {
 		return nil, errors.Wrap(err, "cleaning layers SBOM directory")
 	}
 
+	// get build config
 	config, err := b.BuildConfig()
 	if err != nil {
 		return nil, err
 	}
 
-	processMap := newProcessMap()
-	plan := b.Plan
-	var buildBOM []buildpack.BOMEntry
-	var launchBOM []buildpack.BOMEntry
-	var bomFiles []buildpack.BOMFile
-	var slices []layers.Slice
-	var labels []buildpack.Label
-
+	var (
+		bomFiles  []buildpack.BOMFile
+		buildBOM  []buildpack.BOMEntry
+		labels    []buildpack.Label
+		launchBOM []buildpack.BOMEntry
+		slices    []layers.Slice
+	)
 	bpEnv := env.NewBuildEnv(os.Environ())
+	plan := b.Plan
+	processMap := newProcessMap()
 
-	for _, bp := range b.Group.Group {
-		b.Logger.Debugf("Running build for buildpack %s", bp)
+	for _, groupEl := range b.Group.Filter(kind).Group {
+		b.Logger.Debugf("Running build for %s %s", strings.ToLower(kind), groupEl)
 
-		b.Logger.Debug("Looking up buildpack")
-		bpTOML, err := b.DirStore.Lookup(buildpack.KindBuildpack, bp.ID, bp.Version)
+		b.Logger.Debug("Looking up module")
+		bpTOML, err := b.DirStore.Lookup(kind, groupEl.ID, groupEl.Version)
 		if err != nil {
 			return nil, err
 		}
 
 		b.Logger.Debug("Finding plan")
-		bpPlan := plan.Find(bp.ID)
+		bpPlan := plan.Find(groupEl.ID)
 
+		b.Logger.Debug("Invoking build command")
 		br, err := bpTOML.Build(bpPlan, config, bpEnv)
 		if err != nil {
 			return nil, err
 		}
 
-		b.Logger.Debug("Updating buildpack processes")
-		updateDefaultProcesses(br.Processes, api.MustParse(bp.API), b.Platform.API())
+		b.Logger.Debug("Updating processes")
+		updateDefaultProcesses(br.Processes, api.MustParse(groupEl.API), b.PlatformAPI)
 
+		// aggregate build results
 		buildBOM = append(buildBOM, br.BuildBOM...)
 		launchBOM = append(launchBOM, br.LaunchBOM...)
 		bomFiles = append(bomFiles, br.BOMFiles...)
 		labels = append(labels, br.Labels...)
 		plan = plan.Filter(br.MetRequires)
-
-		b.Logger.Debug("Updating process list")
 		warning := processMap.add(br.Processes)
 		if warning != "" {
 			b.Logger.Warn(warning)
 		}
-
 		slices = append(slices, br.Slices...)
 
-		b.Logger.Debugf("Finished running build for buildpack %s", bp)
+		b.Logger.Debugf("Finished running build for %s %s", strings.ToLower(kind), groupEl)
 	}
 
-	if b.Platform.API().LessThan("0.4") {
+	if b.PlatformAPI.LessThan("0.4") {
 		config.Logger.Debug("Updating BOM entries")
 		for i := range launchBOM {
 			launchBOM[i].ConvertMetadataToVersion()
 		}
 	}
 
-	if b.Platform.API().AtLeast("0.8") {
+	if b.PlatformAPI.AtLeast("0.8") {
 		b.Logger.Debug("Copying SBOM files")
 		err = b.copyBOMFiles(config.LayersDir, bomFiles)
 		if err != nil {
@@ -122,7 +197,7 @@ func (b *Builder) Build() (*platform.BuildMetadata, error) {
 		}
 	}
 
-	if b.Platform.API().AtLeast("0.9") {
+	if b.PlatformAPI.AtLeast("0.9") {
 		b.Logger.Debug("Creating SBOM files for legacy BOM")
 		if err := encoding.WriteJSON(filepath.Join(b.LayersDir, "sbom", "launch", "sbom.legacy.json"), launchBOM); err != nil {
 			return nil, errors.Wrap(err, "encoding launch bom")
@@ -139,7 +214,8 @@ func (b *Builder) Build() (*platform.BuildMetadata, error) {
 	b.Logger.Debug("Finished build")
 	return &platform.BuildMetadata{
 		BOM:                         launchBOM,
-		Buildpacks:                  b.Group.Group,
+		Buildpacks:                  b.Group.Filter(buildpack.KindBuildpack).Group,
+		Extensions:                  b.Group.Filter(buildpack.KindExtension).Group,
 		Labels:                      labels,
 		Processes:                   procList,
 		Slices:                      slices,

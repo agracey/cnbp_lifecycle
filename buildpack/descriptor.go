@@ -13,6 +13,7 @@ const (
 	KindExtension = "Extension"
 )
 
+//go:generate mockgen -package testmock -destination ../testmock/build_module.go github.com/buildpacks/lifecycle/buildpack BuildModule
 type BuildModule interface {
 	Build(bpPlan Plan, config BuildConfig, bpEnv BuildEnv) (BuildResult, error)
 	ConfigFile() *Descriptor
@@ -98,6 +99,25 @@ func (bg Group) Append(group ...Group) Group {
 		bg.Group = append(bg.Group, g.Group...)
 	}
 	return bg
+}
+
+func (bg Group) Filter(kind string) Group {
+	var group Group
+	for _, el := range bg.Group {
+		if el.Kind() == kind {
+			group.Group = append(group.Group, el)
+		}
+	}
+	return group
+}
+
+func (bg Group) HasExtensions() bool {
+	for _, el := range bg.Group {
+		if el.Extension {
+			return true
+		}
+	}
+	return false
 }
 
 // A GroupElement represents a buildpack referenced in a buildpack.toml's [[order.group]] OR

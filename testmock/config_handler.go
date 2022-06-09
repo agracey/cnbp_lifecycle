@@ -10,6 +10,7 @@ import (
 	gomock "github.com/golang/mock/gomock"
 
 	buildpack "github.com/buildpacks/lifecycle/buildpack"
+	platform "github.com/buildpacks/lifecycle/platform"
 )
 
 // MockConfigHandler is a mock of ConfigHandler interface.
@@ -64,4 +65,19 @@ func (m *MockConfigHandler) ReadOrder(arg0 string) (buildpack.Order, buildpack.O
 func (mr *MockConfigHandlerMockRecorder) ReadOrder(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadOrder", reflect.TypeOf((*MockConfigHandler)(nil).ReadOrder), arg0)
+}
+
+// ReadPlan mocks base method.
+func (m *MockConfigHandler) ReadPlan(arg0 string) (platform.BuildPlan, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadPlan", arg0)
+	ret0, _ := ret[0].(platform.BuildPlan)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReadPlan indicates an expected call of ReadPlan.
+func (mr *MockConfigHandlerMockRecorder) ReadPlan(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadPlan", reflect.TypeOf((*MockConfigHandler)(nil).ReadPlan), arg0)
 }

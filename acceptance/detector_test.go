@@ -79,7 +79,7 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 			)
 			output, err := command.CombinedOutput()
 			h.AssertNotNil(t, err)
-			expected := "failed to build: refusing to run as root"
+			expected := "failed to detect: refusing to run as root"
 			h.AssertStringContains(t, string(output), expected)
 		})
 	})
@@ -154,9 +154,9 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 			)
 
 			// check group.toml
-			tempGroupToml := filepath.Join(copyDir, "layers", "group.toml")
+			foundGroupTOML := filepath.Join(copyDir, "layers", "group.toml")
 			var buildpackGroup buildpack.Group
-			_, err := toml.DecodeFile(tempGroupToml, &buildpackGroup)
+			_, err := toml.DecodeFile(foundGroupTOML, &buildpackGroup)
 			h.AssertNil(t, err)
 			h.AssertEq(t, buildpackGroup.Group[0].ID, "simple_buildpack")
 			h.AssertEq(t, buildpackGroup.Group[0].Version, "simple_buildpack_version")
@@ -210,9 +210,9 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 			)
 
 			// check group.toml
-			tempGroupToml := filepath.Join(copyDir, "layers", "custom_group.toml")
+			foundGroupTOML := filepath.Join(copyDir, "layers", "custom_group.toml")
 			var buildpackGroup buildpack.Group
-			_, err := toml.DecodeFile(tempGroupToml, &buildpackGroup)
+			_, err := toml.DecodeFile(foundGroupTOML, &buildpackGroup)
 			h.AssertNil(t, err)
 			h.AssertEq(t, buildpackGroup.Group[0].ID, "always_detect_buildpack")
 			h.AssertEq(t, buildpackGroup.Group[0].Version, "always_detect_buildpack_version")
@@ -271,9 +271,9 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 				)
 
 				// check group.toml
-				tempGroupToml := filepath.Join(copyDir, "layers", "group.toml")
+				foundGroupTOML := filepath.Join(copyDir, "layers", "group.toml")
 				var buildpackGroup buildpack.Group
-				_, err := toml.DecodeFile(tempGroupToml, &buildpackGroup)
+				_, err := toml.DecodeFile(foundGroupTOML, &buildpackGroup)
 				h.AssertNil(t, err)
 				h.AssertEq(t, buildpackGroup.Group[0].ID, "simple_buildpack")
 				h.AssertEq(t, buildpackGroup.Group[0].Version, "simple_buildpack_version")
@@ -339,9 +339,9 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 				)
 
 				// check group.toml
-				tempGroupToml := filepath.Join(copyDir, "layers", "group.toml")
+				foundGroupTOML := filepath.Join(copyDir, "layers", "group.toml")
 				var buildpackGroup buildpack.Group
-				_, err := toml.DecodeFile(tempGroupToml, &buildpackGroup)
+				_, err := toml.DecodeFile(foundGroupTOML, &buildpackGroup)
 				h.AssertNil(t, err)
 				h.AssertEq(t, buildpackGroup.Group[0].ID, "simple_buildpack")
 				h.AssertEq(t, buildpackGroup.Group[0].Version, "simple_buildpack_version")
@@ -364,9 +364,9 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 				)
 
 				// check group.toml
-				tempGroupToml := filepath.Join(copyDir, "layers", "group.toml")
+				foundGroupTOML := filepath.Join(copyDir, "layers", "group.toml")
 				var buildpackGroup buildpack.Group
-				_, err := toml.DecodeFile(tempGroupToml, &buildpackGroup)
+				_, err := toml.DecodeFile(foundGroupTOML, &buildpackGroup)
 				h.AssertNil(t, err)
 				h.AssertEq(t, buildpackGroup.Group[0].ID, "simple_buildpack")
 				h.AssertEq(t, buildpackGroup.Group[0].Version, "simple_buildpack_version")
@@ -389,9 +389,9 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 				)
 
 				// check group.toml
-				tempGroupToml := filepath.Join(copyDir, "layers", "group.toml")
+				foundGroupTOML := filepath.Join(copyDir, "layers", "group.toml")
 				var buildpackGroup buildpack.Group
-				_, err := toml.DecodeFile(tempGroupToml, &buildpackGroup)
+				_, err := toml.DecodeFile(foundGroupTOML, &buildpackGroup)
 				h.AssertNil(t, err)
 				h.AssertEq(t, buildpackGroup.Group[0].ID, "simple_buildpack")
 				h.AssertEq(t, buildpackGroup.Group[0].Version, "simple_buildpack_version")
@@ -416,9 +416,9 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 					)
 
 					// check group.toml
-					tempGroupToml := filepath.Join(copyDir, "layers", "group.toml")
+					foundGroupTOML := filepath.Join(copyDir, "layers", "group.toml")
 					var buildpackGroup buildpack.Group
-					_, err := toml.DecodeFile(tempGroupToml, &buildpackGroup)
+					_, err := toml.DecodeFile(foundGroupTOML, &buildpackGroup)
 					h.AssertNil(t, err)
 					h.AssertEq(t, buildpackGroup.Group[0].ID, "simple_buildpack")
 					h.AssertEq(t, buildpackGroup.Group[0].Version, "simple_buildpack_version")
@@ -473,15 +473,17 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 					"--env", "CNB_PLATFORM_API="+latestPlatformAPI,
 				),
 				h.WithArgs(
+					"-analyzed=/layers/analyzed.toml",
 					"-extensions=/cnb/extensions",
+					"-generated=/layers/generated", // TODO: make it generated path and add output dir
 					"-log-level=debug",
 				),
 			)
 
 			// check group.toml
-			tempGroupToml := filepath.Join(copyDir, "layers", "group.toml")
+			foundGroupTOML := filepath.Join(copyDir, "layers", "group.toml")
 			var buildpackGroup buildpack.Group
-			_, err := toml.DecodeFile(tempGroupToml, &buildpackGroup)
+			_, err := toml.DecodeFile(foundGroupTOML, &buildpackGroup)
 			h.AssertNil(t, err)
 			h.AssertEq(t, buildpackGroup.Group[0].ID, "simple_extension")
 			h.AssertEq(t, buildpackGroup.Group[0].Version, "simple_extension_version")
@@ -489,6 +491,25 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 			h.AssertEq(t, buildpackGroup.Group[1].ID, "buildpack_for_ext")
 			h.AssertEq(t, buildpackGroup.Group[1].Version, "buildpack_for_ext_version")
 			h.AssertEq(t, buildpackGroup.Group[1].Extension, false)
+
+			t.Log("runs /bin/build for extensions")
+			t.Log("records the invoked extensions in <layers>/config/metadata.toml")
+			foundMetadataTOML := filepath.Join(copyDir, "layers", "config", "metadata.toml")
+			var metadata platform.BuildMetadata
+			_, err = toml.DecodeFile(foundMetadataTOML, &metadata)
+			h.AssertEq(t, metadata.Buildpacks, nil)
+			h.AssertEq(t, metadata.Extensions, []buildpack.GroupElement{ /* TODO */ })
+			t.Log("records the generated dockerfiles in generated.toml")
+			foundGeneratedTOML := filepath.Join(copyDir, "layers", "generated.toml")
+			h.AssertPathExists(t, foundGeneratedTOML) // TODO: assert on content
+			t.Log("outputs the generated dockerfiles in the output directory")
+			h.AssertPathExists(t, filepath.Join(copyDir, "layers", "output", "generated", "FOO" /* TODO */))
+			t.Log("records the new run image in analyzed.toml")
+			foundAnalyzedTOML := filepath.Join(copyDir, "layers", "analyzed.toml")
+			var analyzed platform.AnalyzedMetadata
+			_, err = toml.DecodeFile(foundAnalyzedTOML, &analyzed)
+			h.AssertNil(t, err)
+			h.AssertEq(t, analyzed.RunImage, "some-run-image-from-extension")
 		})
 	})
 

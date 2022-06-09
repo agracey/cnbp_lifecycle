@@ -14,6 +14,10 @@ import (
 	"github.com/buildpacks/lifecycle/platform"
 )
 
+type Platform interface {
+	API() *api.Version
+}
+
 type Restorer struct {
 	LayersDir string
 	Logger    log.Logger

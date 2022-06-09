@@ -25,7 +25,8 @@ type Platform interface {
 	API() *api.Version
 	CodeFor(errType platform.LifecycleExitError) int
 	ResolveAnalyze(inputs platform.AnalyzeInputs, logger log.Logger) (platform.AnalyzeInputs, error)
-	ResolveDetect(inputs platform.DetectInputs) (platform.DetectInputs, error)
+	ResolveBuild(inputs platform.BuildInputs) (platform.BuildInputs, error)    // TODO: why doesn't this take a logger?
+	ResolveDetect(inputs platform.DetectInputs) (platform.DetectInputs, error) // TODO: why doesn't this take a logger?
 }
 
 func main() {
@@ -44,7 +45,7 @@ func main() {
 	case "restorer":
 		cmd.Run(&restoreCmd{restoreArgs: restoreArgs{platform: p}}, false)
 	case "builder":
-		cmd.Run(&buildCmd{buildArgs: buildArgs{platform: p}}, false)
+		cmd.Run(&buildCmd{platform: p}, false)
 	case "exporter":
 		cmd.Run(&exportCmd{exportArgs: exportArgs{platform: p}}, false)
 	case "rebaser":
@@ -62,23 +63,23 @@ func main() {
 	}
 }
 
-func subcommand(platform Platform) {
+func subcommand(p Platform) {
 	phase := filepath.Base(os.Args[1])
 	switch phase {
 	case "detect":
-		cmd.Run(&detectCmd{platform: platform}, true)
+		cmd.Run(&detectCmd{platform: p}, true)
 	case "analyze":
-		cmd.Run(&analyzeCmd{platform: platform}, true)
+		cmd.Run(&analyzeCmd{platform: p}, true)
 	case "restore":
-		cmd.Run(&restoreCmd{restoreArgs: restoreArgs{platform: platform}}, true)
+		cmd.Run(&restoreCmd{restoreArgs: restoreArgs{platform: p}}, true)
 	case "build":
-		cmd.Run(&buildCmd{buildArgs: buildArgs{platform: platform}}, true)
+		cmd.Run(&buildCmd{platform: p}, true)
 	case "export":
-		cmd.Run(&exportCmd{exportArgs: exportArgs{platform: platform}}, true)
+		cmd.Run(&exportCmd{exportArgs: exportArgs{platform: p}}, true)
 	case "rebase":
-		cmd.Run(&rebaseCmd{platform: platform}, true)
+		cmd.Run(&rebaseCmd{platform: p}, true)
 	case "create":
-		cmd.Run(&createCmd{platform: platform}, true)
+		cmd.Run(&createCmd{platform: p}, true)
 	default:
 		cmd.Exit(cmd.FailCode(cmd.CodeInvalidArgs, "unknown phase:", phase))
 	}
@@ -238,7 +239,7 @@ func verifyBuildpackApis(group buildpack.Group) error {
 			// but if for some reason it isn't default to 0.2
 			bp.API = "0.2"
 		}
-		if err := cmd.VerifyBuildpackAPI(buildpack.KindBuildpack, bp.String(), bp.API); err != nil { // TODO: when builder and exporter are extensions-aware, this function call should be modified to provide the right module kind
+		if err := cmd.VerifyBuildpackAPI(buildpack.KindBuildpack, bp.String(), bp.API, cmd.DefaultLogger); err != nil { // TODO: when builder and exporter are extensions-aware, this function call should be modified to provide the right module kind
 			return err
 		}
 	}

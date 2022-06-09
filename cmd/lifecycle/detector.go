@@ -20,9 +20,11 @@ type detectCmd struct {
 func (d *detectCmd) DefineFlags() {
 	switch {
 	case d.platform.API().AtLeast("0.10"):
+		cmd.FlagAnalyzedPath(&d.AnalyzedPath)
 		cmd.FlagAppDir(&d.AppDir)
 		cmd.FlagBuildpacksDir(&d.BuildpacksDir)
 		cmd.FlagExtensionsDir(&d.ExtensionsDir)
+		// cmd.FlagGeneratedDir(&d.GeneratedDir)
 		cmd.FlagGroupPath(&d.GroupPath)
 		cmd.FlagLayersDir(&d.LayersDir)
 		cmd.FlagOrderPath(&d.OrderPath)
@@ -56,7 +58,7 @@ func (d *detectCmd) Args(nargs int, args []string) error {
 func (d *detectCmd) Privileges() error {
 	// detector should never be run with privileges
 	if priv.IsPrivileged() {
-		return cmd.FailErr(errors.New("refusing to run as root"), "build")
+		return cmd.FailErr(errors.New("refusing to run as root"), "detect")
 	}
 	return nil
 }
@@ -66,19 +68,48 @@ func (d *detectCmd) Exec() error {
 	if err != nil {
 		return err
 	}
-	factory := lifecycle.NewDetectorFactory(
+	detectorFactory := lifecycle.NewDetectorFactory(
 		d.platform.API(),
 		&cmd.APIVerifier{},
 		lifecycle.NewConfigHandler(),
 		dirStore,
 	)
-	detector, err := factory.NewDetector(d.AppDir, d.OrderPath, d.PlatformDir, cmd.DefaultLogger)
+	detector, err := detectorFactory.NewDetector(
+		d.AppDir,
+		d.OrderPath,
+		d.PlatformDir,
+		cmd.DefaultLogger,
+	)
 	if err != nil {
 		return cmd.FailErr(err, "initialize detector")
 	}
 	group, plan, err := doDetect(detector, d.platform)
 	if err != nil {
 		return err // pass through error from doDetect
+	}
+	if group.HasExtensions() {
+		builderFactory := lifecycle.NewBuilderFactory(
+			d.platform.API(),
+			&cmd.APIVerifier{},
+			lifecycle.NewConfigHandler(),
+			dirStore,
+		)
+		builder, err := builderFactory.NewBuilder(
+			d.AppDir,
+			group,
+			d.GroupPath,
+			d.LayersDir,
+			plan,
+			d.PlanPath,
+			d.PlatformDir,
+			cmd.DefaultLogger,
+		)
+		if err != nil {
+			return cmd.FailErr(err, "initialize builder")
+		}
+		if _, err = doBuild(builder, buildpack.KindExtension, d.platform); err != nil {
+			return err // pass through error
+		}
 	}
 	return d.writeData(group, plan)
 }

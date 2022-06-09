@@ -70,10 +70,8 @@ func (bom *BOMEntry) convertVersionToMetadata() {
 }
 
 func (b *Descriptor) Build(bpPlan Plan, config BuildConfig, bpEnv BuildEnv) (BuildResult, error) {
-	config.Logger.Debugf("Running build for buildpack %s", b)
-
 	if api.MustParse(b.API).Equal(api.MustParse("0.2")) {
-		config.Logger.Debug("Updating buildpack plan entries")
+		config.Logger.Debug("Updating plan entries")
 
 		for i := range bpPlan.Entries {
 			bpPlan.Entries[i].convertMetadataToVersion()
@@ -81,14 +79,14 @@ func (b *Descriptor) Build(bpPlan Plan, config BuildConfig, bpEnv BuildEnv) (Bui
 	}
 
 	config.Logger.Debug("Creating plan directory")
-	planDir, err := ioutil.TempDir("", launch.EscapeID(b.Buildpack.ID)+"-")
+	planDir, err := ioutil.TempDir("", launch.EscapeID(b.Info().ID)+"-")
 	if err != nil {
 		return BuildResult{}, err
 	}
 	defer os.RemoveAll(planDir)
 
 	config.Logger.Debug("Preparing paths")
-	bpLayersDir, bpPlanPath, err := preparePaths(b.Buildpack.ID, bpPlan, config.LayersDir, planDir)
+	bpLayersDir, bpPlanPath, err := preparePaths(b.Info().ID, bpPlan, config.LayersDir, planDir)
 	if err != nil {
 		return BuildResult{}, err
 	}
@@ -247,7 +245,7 @@ func eachLayer(bpLayersDir, buildpackAPI string, fn func(path, api string) (Laye
 
 func (b *Descriptor) readOutputFiles(bpLayersDir, bpPlanPath string, bpPlanIn Plan, bpLayers map[string]LayerMetadataFile, logger log.Logger) (BuildResult, error) {
 	br := BuildResult{}
-	bpFromBpInfo := GroupElement{ID: b.Buildpack.ID, Version: b.Buildpack.Version}
+	bpFromBpInfo := GroupElement{ID: b.Info().ID, Version: b.Buildpack.Version}
 
 	// setup launch.toml
 	var launchTOML LaunchTOML
@@ -334,7 +332,7 @@ func (b *Descriptor) readOutputFiles(bpLayersDir, bpPlanPath string, bpPlanIn Pl
 	// set data from launch.toml
 	br.Labels = append([]Label{}, launchTOML.Labels...)
 	for i := range launchTOML.Processes {
-		launchTOML.Processes[i].BuildpackID = b.Buildpack.ID
+		launchTOML.Processes[i].BuildpackID = b.Info().ID
 		if api.MustParse(b.API).LessThan("0.8") {
 			if launchTOML.Processes[i].WorkingDirectory != "" {
 				logger.Warn(fmt.Sprintf("Warning: process working directory isn't supported in this buildpack api version. Ignoring working directory for process '%s'", launchTOML.Processes[i].Type))

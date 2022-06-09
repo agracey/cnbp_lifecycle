@@ -3,8 +3,6 @@ package main
 import (
 	"errors"
 
-	"github.com/BurntSushi/toml"
-
 	"github.com/buildpacks/lifecycle"
 	"github.com/buildpacks/lifecycle/buildpack"
 	"github.com/buildpacks/lifecycle/cmd"
@@ -15,30 +13,18 @@ import (
 )
 
 type buildCmd struct {
-	// flags: inputs
-	groupPath string
-	planPath  string
-	buildArgs
-}
-
-type buildArgs struct {
-	// inputs needed when run by creator
-	buildpacksDir string
-	layersDir     string
-	appDir        string
-	platformDir   string
-
 	platform Platform
+	platform.BuildInputs
 }
 
 // DefineFlags defines the flags that are considered valid and reads their values (if provided).
 func (b *buildCmd) DefineFlags() {
-	cmd.FlagBuildpacksDir(&b.buildpacksDir)
-	cmd.FlagGroupPath(&b.groupPath)
-	cmd.FlagPlanPath(&b.planPath)
-	cmd.FlagLayersDir(&b.layersDir)
-	cmd.FlagAppDir(&b.appDir)
-	cmd.FlagPlatformDir(&b.platformDir)
+	cmd.FlagBuildpacksDir(&b.BuildpacksDir)
+	cmd.FlagGroupPath(&b.GroupPath)
+	cmd.FlagPlanPath(&b.PlanPath)
+	cmd.FlagLayersDir(&b.LayersDir)
+	cmd.FlagAppDir(&b.AppDir)
+	cmd.FlagPlatformDir(&b.PlatformDir)
 }
 
 // Args validates arguments and flags, and fills in default values.
@@ -47,14 +33,11 @@ func (b *buildCmd) Args(nargs int, args []string) error {
 		return cmd.FailErrCode(errors.New("received unexpected arguments"), cmd.CodeInvalidArgs, "parse arguments")
 	}
 
-	if b.groupPath == cmd.PlaceholderGroupPath {
-		b.groupPath = cmd.DefaultGroupPath(b.platform.API().String(), b.layersDir)
+	var err error
+	b.BuildInputs, err = b.platform.ResolveBuild(b.BuildInputs)
+	if err != nil {
+		return cmd.FailErrCode(err, cmd.CodeInvalidArgs, "resolve inputs")
 	}
-
-	if b.planPath == cmd.PlaceholderPlanPath {
-		b.planPath = cmd.DefaultPlanPath(b.platform.API().String(), b.layersDir)
-	}
-
 	return nil
 }
 
@@ -67,60 +50,50 @@ func (b *buildCmd) Privileges() error {
 }
 
 func (b *buildCmd) Exec() error {
-	group, plan, err := b.readData()
+	dirStore, err := platform.NewDirStore(b.BuildpacksDir, "")
 	if err != nil {
 		return err
 	}
-	if err := verifyBuildpackApis(group); err != nil {
-		return err
-	}
-	return b.build(group, plan)
-}
-
-func (ba buildArgs) build(group buildpack.Group, plan platform.BuildPlan) error {
-	dirStore, err := platform.NewDirStore(ba.buildpacksDir, "")
+	builderFactory := lifecycle.NewBuilderFactory(
+		b.platform.API(),
+		&cmd.APIVerifier{},
+		lifecycle.NewConfigHandler(),
+		dirStore,
+	)
+	builder, err := builderFactory.NewBuilder(
+		b.AppDir,
+		buildpack.Group{},
+		b.GroupPath,
+		b.LayersDir,
+		platform.BuildPlan{},
+		b.PlanPath,
+		b.PlatformDir,
+		cmd.DefaultLogger,
+	)
 	if err != nil {
-		return cmd.FailErrCode(err, ba.platform.CodeFor(platform.BuildError), "build")
-	}
-
-	builder := &lifecycle.Builder{
-		AppDir:      ba.appDir,
-		LayersDir:   ba.layersDir,
-		PlatformDir: ba.platformDir,
-		Platform:    ba.platform,
-		Group:       group,
-		Plan:        plan,
-		Out:         cmd.Stdout,
-		Err:         cmd.Stderr,
-		Logger:      cmd.DefaultLogger,
-		DirStore:    dirStore,
-	}
-	md, err := builder.Build()
-
-	if err != nil {
-		if err, ok := err.(*buildpack.Error); ok {
-			if err.Type == buildpack.ErrTypeBuildpack {
-				return cmd.FailErrCode(err.Cause(), ba.platform.CodeFor(platform.FailedBuildWithErrors), "build")
-			}
+		if err, ok := err.(*cmd.ErrorFail); ok {
+			return cmd.FailErrCode(err, cmd.CodeIncompatibleBuildpackAPI, "initialize builder") // TODO: add test for exit code
 		}
-		return cmd.FailErrCode(err, ba.platform.CodeFor(platform.BuildError), "build")
+		return cmd.FailErr(err, "initialize builder")
 	}
-
-	if err := encoding.WriteTOML(launch.GetMetadataFilePath(ba.layersDir), md); err != nil {
-		return cmd.FailErr(err, "write build metadata")
+	if _, err = doBuild(builder, buildpack.KindBuildpack, b.platform); err != nil {
+		return err // pass through error
 	}
 	return nil
 }
 
-func (b *buildCmd) readData() (buildpack.Group, platform.BuildPlan, error) {
-	group, err := lifecycle.ReadGroup(b.groupPath)
+func doBuild(builder *lifecycle.Builder, kind string, p Platform) (platform.BuildMetadata, error) {
+	md, err := builder.Build(kind)
 	if err != nil {
-		return buildpack.Group{}, platform.BuildPlan{}, cmd.FailErr(err, "read buildpack group")
+		if err, ok := err.(*buildpack.Error); ok {
+			if err.Type == buildpack.ErrTypeBuildpack {
+				return platform.BuildMetadata{}, cmd.FailErrCode(err.Cause(), p.CodeFor(platform.FailedBuildWithErrors), "build")
+			}
+		}
+		return platform.BuildMetadata{}, cmd.FailErrCode(err, p.CodeFor(platform.BuildError), "build")
 	}
-
-	var plan platform.BuildPlan
-	if _, err := toml.DecodeFile(b.planPath, &plan); err != nil {
-		return buildpack.Group{}, platform.BuildPlan{}, cmd.FailErr(err, "parse detect plan")
+	if err = encoding.WriteTOML(launch.GetMetadataFilePath(builder.LayersDir), md); err != nil {
+		return platform.BuildMetadata{}, cmd.FailErr(err, "write build metadata")
 	}
-	return group, plan, nil
+	return *md, nil
 }

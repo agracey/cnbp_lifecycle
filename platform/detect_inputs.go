@@ -7,9 +7,11 @@ import (
 // DetectInputs holds the values of command-line flags and args.
 // Fields are the cumulative total of inputs across all supported platform APIs.
 type DetectInputs struct {
+	AnalyzedPath  string
 	AppDir        string
 	BuildpacksDir string
 	ExtensionsDir string
+	GeneratedDir  string
 	GroupPath     string
 	LayersDir     string
 	OrderPath     string
@@ -24,7 +26,7 @@ func (r *InputsResolver) ResolveDetect(inputs DetectInputs) (DetectInputs, error
 
 	r.fillDetectDefaultFilePaths(&resolvedInputs)
 
-	if err := r.resolveDirPaths(&resolvedInputs); err != nil {
+	if err := r.resolveDetectDirPaths(&resolvedInputs); err != nil {
 		return DetectInputs{}, err
 	}
 	return resolvedInputs, nil
@@ -42,7 +44,7 @@ func (r *InputsResolver) fillDetectDefaultFilePaths(inputs *DetectInputs) {
 	}
 }
 
-func (r *InputsResolver) resolveDirPaths(inputs *DetectInputs) error {
+func (r *InputsResolver) resolveDetectDirPaths(inputs *DetectInputs) error {
 	var err error
 	if inputs.AppDir, err = filepath.Abs(inputs.AppDir); err != nil {
 		return err

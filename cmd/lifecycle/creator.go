@@ -285,15 +285,27 @@ func (c *createCmd) Exec() error {
 	// send pings to docker daemon while BUILDING to prevent connection closure
 	stopPinging := startPinging(c.docker)
 	cmd.DefaultLogger.Phase("BUILDING")
-	err = buildArgs{
-		buildpacksDir: c.buildpacksDir,
-		layersDir:     c.layersDir,
-		appDir:        c.appDir,
-		platform:      c.platform,
-		platformDir:   c.platformDir,
-	}.build(group, plan)
+	builderFactory := lifecycle.NewBuilderFactory(
+		c.platform.API(),
+		&cmd.APIVerifier{},
+		lifecycle.NewConfigHandler(),
+		dirStore,
+	)
+	builder, err := builderFactory.NewBuilder(
+		c.appDir,
+		buildpack.Group{},
+		"",
+		c.layersDir,
+		plan,
+		"",
+		c.platformDir,
+		cmd.DefaultLogger,
+	)
+	if err != nil {
+		return cmd.FailErr(err, "initialize builder")
+	}
+	_, err = doBuild(builder, buildpack.KindBuildpack, c.platform)
 	stopPinging()
-
 	if err != nil {
 		return err
 	}
