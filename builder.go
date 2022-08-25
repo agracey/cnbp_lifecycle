@@ -16,6 +16,7 @@ import (
 	"github.com/buildpacks/lifecycle/internal/fsutil"
 	"github.com/buildpacks/lifecycle/launch"
 	"github.com/buildpacks/lifecycle/layers"
+	"github.com/buildpacks/lifecycle/log"
 	"github.com/buildpacks/lifecycle/platform"
 )
 
@@ -30,10 +31,6 @@ type BuildEnv interface {
 	List() []string
 }
 
-type DirStore interface {
-	Lookup(kind, id, version string) (buildpack.BuildModule, error)
-}
-
 type Builder struct {
 	AppDir      string
 	LayersDir   string
@@ -42,7 +39,7 @@ type Builder struct {
 	Group       buildpack.Group
 	Plan        platform.BuildPlan
 	Out, Err    io.Writer
-	Logger      Logger
+	Logger      log.Logger
 	DirStore    DirStore
 }
 
@@ -79,7 +76,7 @@ func (b *Builder) Build() (*platform.BuildMetadata, error) {
 		}
 
 		b.Logger.Debug("Finding plan")
-		bpPlan := plan.Find(bp.ID)
+		bpPlan := plan.Find(buildpack.KindBuildpack, bp.ID)
 
 		br, err := bpTOML.Build(bpPlan, config, bpEnv)
 		if err != nil {
@@ -115,7 +112,7 @@ func (b *Builder) Build() (*platform.BuildMetadata, error) {
 
 	if b.Platform.API().AtLeast("0.8") {
 		b.Logger.Debug("Copying SBOM files")
-		err = b.copyBOMFiles(config.LayersDir, bomFiles)
+		err = b.copySBOMFiles(config.OutputParentDir, bomFiles)
 		if err != nil {
 			return nil, err
 		}
@@ -139,6 +136,7 @@ func (b *Builder) Build() (*platform.BuildMetadata, error) {
 	return &platform.BuildMetadata{
 		BOM:                         launchBOM,
 		Buildpacks:                  b.Group.Group,
+		Extensions:                  b.Group.GroupExtensions,
 		Labels:                      labels,
 		Processes:                   procList,
 		Slices:                      slices,
@@ -146,7 +144,7 @@ func (b *Builder) Build() (*platform.BuildMetadata, error) {
 	}, nil
 }
 
-// copyBOMFiles() copies any BOM files written by buildpacks during the Build() process
+// copySBOMFiles() copies any BOM files written by buildpacks during the Build() process
 // to their appropriate locations, in preparation for its final application layer.
 // This function handles both BOMs that are associated with a layer directory and BOMs that are not
 // associated with a layer directory, since "bomFile.LayerName" will be "" in the latter case.
@@ -167,7 +165,7 @@ func (b *Builder) Build() (*platform.BuildMetadata, error) {
 //             ├── A
 //             │   └── sbom.cdx.json
 //             └── sbom.cdx.json
-func (b *Builder) copyBOMFiles(layersDir string, bomFiles []buildpack.BOMFile) error {
+func (b *Builder) copySBOMFiles(layersDir string, bomFiles []buildpack.BOMFile) error {
 	var (
 		buildSBOMDir  = filepath.Join(layersDir, "sbom", "build")
 		cacheSBOMDir  = filepath.Join(layersDir, "sbom", "cache")
@@ -236,12 +234,12 @@ func (b *Builder) BuildConfig() (buildpack.BuildConfig, error) {
 	}
 
 	return buildpack.BuildConfig{
-		AppDir:      appDir,
-		PlatformDir: platformDir,
-		LayersDir:   layersDir,
-		Out:         b.Out,
-		Err:         b.Err,
-		Logger:      b.Logger,
+		AppDir:          appDir,
+		PlatformDir:     platformDir,
+		OutputParentDir: layersDir,
+		Out:             b.Out,
+		Err:             b.Err,
+		Logger:          b.Logger,
 	}, nil
 }
 

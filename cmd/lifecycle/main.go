@@ -17,19 +17,21 @@ import (
 	"github.com/buildpacks/lifecycle/buildpack"
 	"github.com/buildpacks/lifecycle/cache"
 	"github.com/buildpacks/lifecycle/cmd"
+	"github.com/buildpacks/lifecycle/cmd/lifecycle/cli"
+	"github.com/buildpacks/lifecycle/log"
 	"github.com/buildpacks/lifecycle/platform"
 )
 
 type Platform interface {
 	API() *api.Version
 	CodeFor(errType platform.LifecycleExitError) int
-	ResolveAnalyze(inputs platform.AnalyzeInputs, logger platform.Logger) (platform.AnalyzeInputs, error)
+	ResolveAnalyze(inputs platform.AnalyzeInputs, logger log.Logger) (platform.AnalyzeInputs, error)
 	ResolveDetect(inputs platform.DetectInputs) (platform.DetectInputs, error)
 }
 
 func main() {
-	platformAPI := cmd.EnvOrDefault(cmd.EnvPlatformAPI, cmd.DefaultPlatformAPI)
-	if err := cmd.VerifyPlatformAPI(platformAPI); err != nil {
+	platformAPI := cmd.EnvOrDefault(platform.EnvPlatformAPI, platform.DefaultPlatformAPI)
+	if err := cmd.VerifyPlatformAPI(platformAPI, cmd.DefaultLogger); err != nil {
 		cmd.Exit(err)
 	}
 
@@ -37,22 +39,22 @@ func main() {
 
 	switch strings.TrimSuffix(filepath.Base(os.Args[0]), filepath.Ext(os.Args[0])) {
 	case "detector":
-		cmd.Run(&detectCmd{platform: p}, false)
+		cli.Run(&detectCmd{platform: p}, false)
 	case "analyzer":
-		cmd.Run(&analyzeCmd{platform: p}, false)
+		cli.Run(&analyzeCmd{platform: p}, false)
 	case "restorer":
-		cmd.Run(&restoreCmd{restoreArgs: restoreArgs{platform: p}}, false)
+		cli.Run(&restoreCmd{restoreArgs: restoreArgs{platform: p}}, false)
 	case "builder":
-		cmd.Run(&buildCmd{buildArgs: buildArgs{platform: p}}, false)
+		cli.Run(&buildCmd{buildArgs: buildArgs{platform: p}}, false)
 	case "exporter":
-		cmd.Run(&exportCmd{exportArgs: exportArgs{platform: p}}, false)
+		cli.Run(&exportCmd{exportArgs: exportArgs{platform: p}}, false)
 	case "rebaser":
-		cmd.Run(&rebaseCmd{platform: p}, false)
+		cli.Run(&rebaseCmd{platform: p}, false)
 	case "creator":
-		cmd.Run(&createCmd{platform: p}, false)
+		cli.Run(&createCmd{platform: p}, false)
 	default:
 		if len(os.Args) < 2 {
-			cmd.Exit(cmd.FailCode(cmd.CodeInvalidArgs, "parse arguments"))
+			cmd.Exit(cmd.FailCode(cmd.CodeForInvalidArgs, "parse arguments"))
 		}
 		if os.Args[1] == "-version" {
 			cmd.ExitWithVersion()
@@ -61,25 +63,25 @@ func main() {
 	}
 }
 
-func subcommand(platform Platform) {
+func subcommand(p Platform) {
 	phase := filepath.Base(os.Args[1])
 	switch phase {
 	case "detect":
-		cmd.Run(&detectCmd{platform: platform}, true)
+		cli.Run(&detectCmd{platform: p}, true)
 	case "analyze":
-		cmd.Run(&analyzeCmd{platform: platform}, true)
+		cli.Run(&analyzeCmd{platform: p}, true)
 	case "restore":
-		cmd.Run(&restoreCmd{restoreArgs: restoreArgs{platform: platform}}, true)
+		cli.Run(&restoreCmd{restoreArgs: restoreArgs{platform: p}}, true)
 	case "build":
-		cmd.Run(&buildCmd{buildArgs: buildArgs{platform: platform}}, true)
+		cli.Run(&buildCmd{buildArgs: buildArgs{platform: p}}, true)
 	case "export":
-		cmd.Run(&exportCmd{exportArgs: exportArgs{platform: platform}}, true)
+		cli.Run(&exportCmd{exportArgs: exportArgs{platform: p}}, true)
 	case "rebase":
-		cmd.Run(&rebaseCmd{platform: platform}, true)
+		cli.Run(&rebaseCmd{platform: p}, true)
 	case "create":
-		cmd.Run(&createCmd{platform: platform}, true)
+		cli.Run(&createCmd{platform: p}, true)
 	default:
-		cmd.Exit(cmd.FailCode(cmd.CodeInvalidArgs, "unknown phase:", phase))
+		cmd.Exit(cmd.FailCode(cmd.CodeForInvalidArgs, "unknown phase:", phase))
 	}
 }
 
@@ -237,7 +239,7 @@ func verifyBuildpackApis(group buildpack.Group) error {
 			// but if for some reason it isn't default to 0.2
 			bp.API = "0.2"
 		}
-		if err := cmd.VerifyBuildpackAPI(buildpack.KindBuildpack, bp.String(), bp.API); err != nil { // TODO: when builder and exporter are extensions-aware, this function call should be modified to provide the right module kind
+		if err := cmd.VerifyBuildpackAPI(buildpack.KindBuildpack, bp.String(), bp.API, cmd.DefaultLogger); err != nil { // TODO: when builder and exporter are extensions-aware, this function call should be modified to provide the right module kind
 			return err
 		}
 	}

@@ -11,13 +11,14 @@ import (
 
 	"github.com/buildpacks/lifecycle/api"
 	"github.com/buildpacks/lifecycle/internal/str"
+	llog "github.com/buildpacks/lifecycle/log"
 	"github.com/buildpacks/lifecycle/platform"
 	h "github.com/buildpacks/lifecycle/testhelpers"
 )
 
 func TestAnalyzeInputs(t *testing.T) {
 	for _, api := range api.Platform.Supported {
-		spec.Run(t, "unit-analyzer/"+api.String(), testAnalyzeInputs(api.String()), spec.Parallel(), spec.Report(report.Terminal{}))
+		spec.Run(t, "unit-analyze-inputs/"+api.String(), testAnalyzeInputs(api.String()), spec.Parallel(), spec.Report(report.Terminal{}))
 	}
 }
 
@@ -26,7 +27,7 @@ func testAnalyzeInputs(platformAPI string) func(t *testing.T, when spec.G, it sp
 		var (
 			resolver   *platform.InputsResolver
 			logHandler *memory.Handler
-			logger     platform.Logger
+			logger     llog.Logger
 		)
 
 		it.Before(func() {

@@ -9,6 +9,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/buildpacks/lifecycle/api"
+	"github.com/buildpacks/lifecycle/log"
 )
 
 const (
@@ -102,7 +103,7 @@ func sbomGlob(layersDir string) (matches []string, err error) {
 	return
 }
 
-func (b *Descriptor) processBOMFiles(layersDir string, bp GroupElement, bpLayers map[string]LayerMetadataFile, logger Logger) ([]BOMFile, error) {
+func (d *Descriptor) processSBOMFiles(layersDir string, bp GroupElement, bpLayers map[string]LayerMetadataFile, logger log.Logger) ([]BOMFile, error) {
 	var (
 		files []BOMFile
 	)
@@ -112,7 +113,7 @@ func (b *Descriptor) processBOMFiles(layersDir string, bp GroupElement, bpLayers
 		return nil, err
 	}
 
-	if api.MustParse(b.API).LessThan("0.7") {
+	if api.MustParse(d.API).LessThan("0.7") {
 		if len(matches) != 0 {
 			logger.Warnf("the following SBOM files will be ignored for buildpack api version < 0.7 [%s]", strings.Join(matches, ", "))
 		}
@@ -175,5 +176,5 @@ func (b *Descriptor) processBOMFiles(layersDir string, bp GroupElement, bpLayers
 		}
 	}
 
-	return files, validateMediaTypes(bp, files, b.Buildpack.SBOM)
+	return files, validateMediaTypes(bp, files, d.Buildpack.SBOM)
 }

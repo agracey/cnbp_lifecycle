@@ -79,7 +79,7 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 			)
 			output, err := command.CombinedOutput()
 			h.AssertNotNil(t, err)
-			expected := "failed to build: refusing to run as root"
+			expected := "failed to detect: refusing to run as root"
 			h.AssertStringContains(t, string(output), expected)
 		})
 	})
@@ -96,13 +96,13 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 			)
 			output, err := command.CombinedOutput()
 			h.AssertNotNil(t, err)
-			expected := "failed to initialize detector: reading buildpack order file"
+			expected := "failed to initialize detector: reading order"
 			h.AssertStringContains(t, string(output), expected)
 		})
 	})
 
 	when("no buildpack group passed detection", func() {
-		it("errors", func() {
+		it("errors and exits with the expected code", func() {
 			command := exec.Command(
 				"docker",
 				"run",
@@ -123,7 +123,7 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 		})
 	})
 
-	when("there is a buildpack group that pass detection", func() {
+	when("there is a buildpack group that passes detection", func() {
 		var copyDir, containerName string
 
 		it.Before(func() {
@@ -140,7 +140,7 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 			os.RemoveAll(copyDir)
 		})
 
-		it("writes group.toml and plan.toml", func() {
+		it("writes group.toml and plan.toml at the default locations", func() {
 			h.DockerRunAndCopy(t,
 				containerName,
 				copyDir,
@@ -154,9 +154,9 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 			)
 
 			// check group.toml
-			tempGroupToml := filepath.Join(copyDir, "layers", "group.toml")
+			foundGroupTOML := filepath.Join(copyDir, "layers", "group.toml")
 			var buildpackGroup buildpack.Group
-			_, err := toml.DecodeFile(tempGroupToml, &buildpackGroup)
+			_, err := toml.DecodeFile(foundGroupTOML, &buildpackGroup)
 			h.AssertNil(t, err)
 			h.AssertEq(t, buildpackGroup.Group[0].ID, "simple_buildpack")
 			h.AssertEq(t, buildpackGroup.Group[0].Version, "simple_buildpack_version")
@@ -191,7 +191,7 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 			os.RemoveAll(copyDir)
 		})
 
-		it("writes group.toml and plan.toml in the right location and with the right names", func() {
+		it("writes group.toml and plan.toml in the right locations and with the right names", func() {
 			h.DockerRunAndCopy(t,
 				containerName,
 				copyDir,
@@ -210,9 +210,9 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 			)
 
 			// check group.toml
-			tempGroupToml := filepath.Join(copyDir, "layers", "custom_group.toml")
+			foundGroupTOML := filepath.Join(copyDir, "layers", "custom_group.toml")
 			var buildpackGroup buildpack.Group
-			_, err := toml.DecodeFile(tempGroupToml, &buildpackGroup)
+			_, err := toml.DecodeFile(foundGroupTOML, &buildpackGroup)
 			h.AssertNil(t, err)
 			h.AssertEq(t, buildpackGroup.Group[0].ID, "always_detect_buildpack")
 			h.AssertEq(t, buildpackGroup.Group[0].Version, "always_detect_buildpack_version")
@@ -271,9 +271,9 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 				)
 
 				// check group.toml
-				tempGroupToml := filepath.Join(copyDir, "layers", "group.toml")
+				foundGroupTOML := filepath.Join(copyDir, "layers", "group.toml")
 				var buildpackGroup buildpack.Group
-				_, err := toml.DecodeFile(tempGroupToml, &buildpackGroup)
+				_, err := toml.DecodeFile(foundGroupTOML, &buildpackGroup)
 				h.AssertNil(t, err)
 				h.AssertEq(t, buildpackGroup.Group[0].ID, "simple_buildpack")
 				h.AssertEq(t, buildpackGroup.Group[0].Version, "simple_buildpack_version")
@@ -290,154 +290,28 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 					"-order=/custom/order.toml")
 				output, err := command.CombinedOutput()
 				h.AssertNotNil(t, err)
-				expected := "failed to initialize detector: reading buildpack order file: open /custom/order.toml: no such file or directory"
+				expected := "failed to initialize detector: reading order: reading buildpack order file: open /custom/order.toml: no such file or directory"
 				h.AssertStringContains(t, string(output), expected)
 			})
 		})
 
-	})
-
-	when("-order is not provided", func() {
-		var copyDir, containerName, expectedOrderTOMLPath, otherOrderTOMLPath string
-
-		it.Before(func() {
-			containerName = "test-container-" + h.RandString(10)
-			var err error
-			copyDir, err = ioutil.TempDir("", "test-docker-copy-")
-			h.AssertNil(t, err)
-
-			simpleOrderTOML := filepath.Join("testdata", "detector", "container", "cnb", "orders", "simple_order.toml")
-			expectedOrderTOMLPath, err = filepath.Abs(simpleOrderTOML)
-			h.AssertNil(t, err)
-
-			alwaysDetectOrderTOML := filepath.Join("testdata", "detector", "container", "cnb", "orders", "always_detect_order.toml")
-			otherOrderTOMLPath, err = filepath.Abs(alwaysDetectOrderTOML)
-			h.AssertNil(t, err)
-		})
-
-		it.After(func() {
-			if h.DockerContainerExists(t, containerName) {
-				h.Run(t, exec.Command("docker", "rm", containerName))
-			}
-			os.RemoveAll(copyDir)
-		})
-
-		when("/cnb/order.toml and /layers/order.toml are present", func() {
-			it("prefers /layers/order.toml", func() {
-				h.DockerRunAndCopy(t,
-					containerName,
-					copyDir,
-					"/layers",
+		when("the order.toml contains a buildpack using an unsupported api", func() {
+			it("errors", func() {
+				command := exec.Command("docker", "run",
+					"--user", userID,
+					"--rm",
+					"--env", "CNB_PLATFORM_API="+latestPlatformAPI,
 					detectImage,
-					h.WithFlags("--user", userID,
-						"--volume", expectedOrderTOMLPath+":/layers/order.toml",
-						"--volume", otherOrderTOMLPath+":/cnb/order.toml",
-						"--env", "CNB_ORDER_PATH=",
-						"--env", "CNB_PLATFORM_API="+latestPlatformAPI,
-					),
-					h.WithArgs("-log-level=debug"),
-				)
-
-				// check group.toml
-				tempGroupToml := filepath.Join(copyDir, "layers", "group.toml")
-				var buildpackGroup buildpack.Group
-				_, err := toml.DecodeFile(tempGroupToml, &buildpackGroup)
-				h.AssertNil(t, err)
-				h.AssertEq(t, buildpackGroup.Group[0].ID, "simple_buildpack")
-				h.AssertEq(t, buildpackGroup.Group[0].Version, "simple_buildpack_version")
-			})
-		})
-
-		when("only /cnb/order.toml is present", func() {
-			it("processes /cnb/order.toml", func() {
-				h.DockerRunAndCopy(t,
-					containerName,
-					copyDir,
-					"/layers",
-					detectImage,
-					h.WithFlags("--user", userID,
-						"--volume", expectedOrderTOMLPath+":/cnb/order.toml",
-						"--env", "CNB_ORDER_PATH=",
-						"--env", "CNB_PLATFORM_API="+latestPlatformAPI,
-					),
-					h.WithArgs("-log-level=debug"),
-				)
-
-				// check group.toml
-				tempGroupToml := filepath.Join(copyDir, "layers", "group.toml")
-				var buildpackGroup buildpack.Group
-				_, err := toml.DecodeFile(tempGroupToml, &buildpackGroup)
-				h.AssertNil(t, err)
-				h.AssertEq(t, buildpackGroup.Group[0].ID, "simple_buildpack")
-				h.AssertEq(t, buildpackGroup.Group[0].Version, "simple_buildpack_version")
-			})
-		})
-
-		when("only /layers/order.toml is present", func() {
-			it("processes /layers/order.toml", func() {
-				h.DockerRunAndCopy(t,
-					containerName,
-					copyDir,
-					"/layers",
-					detectImage,
-					h.WithFlags("--user", userID,
-						"--volume", expectedOrderTOMLPath+":/layers/order.toml",
-						"--env", "CNB_ORDER_PATH=",
-						"--env", "CNB_PLATFORM_API="+latestPlatformAPI,
-					),
-					h.WithArgs("-log-level=debug"),
-				)
-
-				// check group.toml
-				tempGroupToml := filepath.Join(copyDir, "layers", "group.toml")
-				var buildpackGroup buildpack.Group
-				_, err := toml.DecodeFile(tempGroupToml, &buildpackGroup)
-				h.AssertNil(t, err)
-				h.AssertEq(t, buildpackGroup.Group[0].ID, "simple_buildpack")
-				h.AssertEq(t, buildpackGroup.Group[0].Version, "simple_buildpack_version")
-			})
-		})
-
-		when("platform api < 0.6", func() {
-			when("/cnb/order.toml and /layers/order.toml are present", func() {
-				it("only processes /cnb/order.toml", func() {
-					h.DockerRunAndCopy(t,
-						containerName,
-						copyDir,
-						"/layers",
-						detectImage,
-						h.WithFlags("--user", userID,
-							"--volume", expectedOrderTOMLPath+":/cnb/order.toml",
-							"--volume", otherOrderTOMLPath+":/layers/order.toml",
-							"--env", "CNB_PLATFORM_API=0.5",
-							"--env", "CNB_ORDER_PATH=",
-						),
-						h.WithArgs("-log-level=debug"),
-					)
-
-					// check group.toml
-					tempGroupToml := filepath.Join(copyDir, "layers", "group.toml")
-					var buildpackGroup buildpack.Group
-					_, err := toml.DecodeFile(tempGroupToml, &buildpackGroup)
-					h.AssertNil(t, err)
-					h.AssertEq(t, buildpackGroup.Group[0].ID, "simple_buildpack")
-					h.AssertEq(t, buildpackGroup.Group[0].Version, "simple_buildpack_version")
-				})
-			})
-
-			when("only /layers/order.toml is present", func() {
-				it("errors", func() {
-					command := exec.Command("docker", "run",
-						"--user", userID,
-						"--volume", otherOrderTOMLPath+":/layers/order.toml",
-						"--env", "CNB_PLATFORM_API=0.5",
-						"--env", "CNB_ORDER_PATH=",
-						"--rm", detectImage)
-					output, err := command.CombinedOutput()
-					h.AssertNotNil(t, err)
-					expected := "failed to initialize detector: reading buildpack order file: open /cnb/order.toml: no such file or directory"
-					h.AssertStringContains(t, string(output), expected)
-				})
+					"-order=/cnb/orders/bad_api.toml")
+				output, err := command.CombinedOutput()
+				h.AssertNotNil(t, err)
+				failErr, ok := err.(*exec.ExitError)
+				if !ok {
+					t.Fatalf("expected an error of type exec.ExitError")
+				}
+				h.AssertEq(t, failErr.ExitCode(), 12) // platform code for buildpack api error
+				expected := "buildpack API version '0.1' is incompatible with the lifecycle"
+				h.AssertStringContains(t, string(output), expected)
 			})
 		})
 	})
@@ -462,7 +336,7 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 		})
 
 		it("processes the provided order.toml", func() {
-			h.DockerRunAndCopy(t,
+			output := h.DockerRunAndCopy(t,
 				containerName,
 				copyDir,
 				"/layers",
@@ -473,28 +347,55 @@ func testDetector(t *testing.T, when spec.G, it spec.S) {
 					"--env", "CNB_PLATFORM_API="+latestPlatformAPI,
 				),
 				h.WithArgs(
+					"-analyzed=/layers/analyzed.toml",
 					"-extensions=/cnb/extensions",
 					"-log-level=debug",
+					"-generated=/layers/generated",
 				),
 			)
 
-			// check group.toml
-			tempGroupToml := filepath.Join(copyDir, "layers", "group.toml")
+			t.Log("runs /bin/detect for buildpacks and extensions")
+			h.AssertStringContains(t, output, "Platform requested experimental feature 'Dockerfiles'")
+			h.AssertStringContains(t, output, "simple_extension: output from /bin/detect")
+			t.Log("writes group.toml")
+			foundGroupTOML := filepath.Join(copyDir, "layers", "group.toml")
 			var buildpackGroup buildpack.Group
-			_, err := toml.DecodeFile(tempGroupToml, &buildpackGroup)
+			_, err := toml.DecodeFile(foundGroupTOML, &buildpackGroup)
 			h.AssertNil(t, err)
-			h.AssertEq(t, buildpackGroup.Group[0].ID, "simple_extension")
-			h.AssertEq(t, buildpackGroup.Group[0].Version, "simple_extension_version")
-			h.AssertEq(t, buildpackGroup.Group[0].Extension, true)
-			h.AssertEq(t, buildpackGroup.Group[1].ID, "buildpack_for_ext")
-			h.AssertEq(t, buildpackGroup.Group[1].Version, "buildpack_for_ext_version")
-			h.AssertEq(t, buildpackGroup.Group[1].Extension, false)
+			h.AssertEq(t, buildpackGroup.GroupExtensions[0].ID, "simple_extension")
+			h.AssertEq(t, buildpackGroup.GroupExtensions[0].Version, "simple_extension_version")
+			h.AssertEq(t, buildpackGroup.GroupExtensions[0].Extension, false) // this shows that `extension = true` is not redundantly printed in group.toml
+			h.AssertEq(t, buildpackGroup.Group[0].ID, "buildpack_for_ext")
+			h.AssertEq(t, buildpackGroup.Group[0].Version, "buildpack_for_ext_version")
+			h.AssertEq(t, buildpackGroup.Group[0].Extension, false)
+			t.Log("writes plan.toml")
+			foundPlanTOML := filepath.Join(copyDir, "layers", "plan.toml")
+			var plan platform.BuildPlan
+			_, err = toml.DecodeFile(foundPlanTOML, &plan)
+			h.AssertNil(t, err)
+			h.AssertEq(t, plan.Entries[0].Requires[0].Name, "some_requirement")
+			h.AssertEq(t, plan.Entries[0].Providers[0].ID, "simple_extension")
+			h.AssertEq(t, plan.Entries[0].Providers[0].Extension, true)
+
+			t.Log("runs /bin/generate for extensions")
+			h.AssertStringContains(t, output, "simple_extension: output from /bin/generate")
+			t.Log("copies the generated dockerfiles to the output directory")
+			dockerfilePath := filepath.Join(copyDir, "layers", "generated", "run", "simple_extension", "Dockerfile")
+			h.AssertPathExists(t, dockerfilePath)
+			contents, err := ioutil.ReadFile(dockerfilePath)
+			h.AssertEq(t, string(contents), "FROM some-run-image-from-extension\n")
+			t.Log("records the new run image in analyzed.toml")
+			foundAnalyzedTOML := filepath.Join(copyDir, "layers", "analyzed.toml")
+			var analyzed platform.AnalyzedMetadata
+			_, err = toml.DecodeFile(foundAnalyzedTOML, &analyzed)
+			h.AssertNil(t, err)
+			h.AssertEq(t, analyzed.RunImage.Reference, "some-run-image-from-extension")
 		})
 	})
 
 	when("platform api < 0.6", func() {
 		when("no buildpack group passed detection", func() {
-			it("errors", func() {
+			it("errors and exits with the expected code", func() {
 				command := exec.Command(
 					"docker",
 					"run",

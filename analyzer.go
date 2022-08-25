@@ -9,12 +9,13 @@ import (
 	"github.com/buildpacks/lifecycle/cache"
 	"github.com/buildpacks/lifecycle/image"
 	"github.com/buildpacks/lifecycle/internal/layer"
+	"github.com/buildpacks/lifecycle/log"
 	"github.com/buildpacks/lifecycle/platform"
 )
 
 type AnalyzerFactory struct {
 	platformAPI     *api.Version
-	apiVerifier     APIVerifier
+	apiVerifier     BuildpackAPIVerifier
 	cacheHandler    CacheHandler
 	configHandler   ConfigHandler
 	imageHandler    ImageHandler
@@ -23,7 +24,7 @@ type AnalyzerFactory struct {
 
 func NewAnalyzerFactory(
 	platformAPI *api.Version,
-	apiVerifier APIVerifier,
+	apiVerifier BuildpackAPIVerifier,
 	cacheHandler CacheHandler,
 	configHandler ConfigHandler,
 	imageHandler ImageHandler,
@@ -42,7 +43,7 @@ func NewAnalyzerFactory(
 type Analyzer struct {
 	PreviousImage imgutil.Image
 	RunImage      imgutil.Image
-	Logger        Logger
+	Logger        log.Logger
 	SBOMRestorer  layer.SBOMRestorer
 
 	// Platform API < 0.7
@@ -64,7 +65,7 @@ func (f *AnalyzerFactory) NewAnalyzer(
 	previousImageRef string,
 	runImageRef string,
 	skipLayers bool,
-	logger Logger,
+	logger log.Logger,
 ) (*Analyzer, error) {
 	analyzer := &Analyzer{
 		LayerMetadataRestorer: &layer.NopMetadataRestorer{},
@@ -77,7 +78,7 @@ func (f *AnalyzerFactory) NewAnalyzer(
 			return nil, err
 		}
 	} else {
-		if err := f.setBuildpacks(analyzer, legacyGroup, legacyGroupPath); err != nil {
+		if err := f.setBuildpacks(analyzer, legacyGroup, legacyGroupPath, logger); err != nil {
 			return nil, err
 		}
 		if err := f.setCache(analyzer, cacheImageRef, legacyCacheDir); err != nil {
@@ -127,7 +128,7 @@ func (f *AnalyzerFactory) ensureRegistryAccess(
 	return nil
 }
 
-func (f *AnalyzerFactory) setBuildpacks(analyzer *Analyzer, group buildpack.Group, path string) error {
+func (f *AnalyzerFactory) setBuildpacks(analyzer *Analyzer, group buildpack.Group, path string, logger log.Logger) error {
 	if len(group.Group) > 0 {
 		analyzer.Buildpacks = group.Group
 		return nil
@@ -136,7 +137,12 @@ func (f *AnalyzerFactory) setBuildpacks(analyzer *Analyzer, group buildpack.Grou
 	if analyzer.Buildpacks, err = f.configHandler.ReadGroup(path); err != nil {
 		return err
 	}
-	return f.apiVerifier.VerifyBuildpackAPIsForGroup(analyzer.Buildpacks)
+	for _, bp := range analyzer.Buildpacks {
+		if err := f.apiVerifier.VerifyBuildpackAPI(buildpack.KindBuildpack, bp.String(), bp.API, logger); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (f *AnalyzerFactory) setCache(analyzer *Analyzer, imageRef string, dir string) error {
@@ -253,7 +259,7 @@ func bomSHA(appMeta platform.LayersMetadata) string {
 	return appMeta.BOM.SHA
 }
 
-func retrieveCacheMetadata(fromCache Cache, logger Logger) (platform.CacheMetadata, error) {
+func retrieveCacheMetadata(fromCache Cache, logger log.Logger) (platform.CacheMetadata, error) {
 	// Create empty cache metadata in case a usable cache is not provided.
 	var cacheMeta platform.CacheMetadata
 	if fromCache != nil {
